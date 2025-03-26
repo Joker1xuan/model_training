@@ -1,0 +1,7 @@
+def model_predict(X):
+    return loaded_mlp.predict(X)
+
+explainer = shap.Explainer(model_predict, X_train)
+shap.initjs()
+shap_values = explainer.shap_values(X_val)
+shap_values2 = explainer(X_val)
