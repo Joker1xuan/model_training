@@ -3,9 +3,11 @@ def model_predict(X):
 
 explainer = shap.Explainer(model, X_train)
 shap.initjs()
-shap_values = explainer.shap_values(X_val)
-shap_values2 = explainer(X_val)
-explainer = shap.Explainer(model_predict, X_train)
-shap.initjs()
-shap_values = explainer.shap_values(X_val)
-shap_values2 = explainer(X_val)
+shap_values = explainer.shap_values(X_test)
+shap_values2 = explainer(X_test)
+
+shap.summary_plot(shap_values, X_val, color=plt.get_cmap("viridis"))
+shap.dependence_plot('CHM', shap_values, X_val, 
+                     display_features=X_val,
+                     interaction_index='LAI')
+shap.plots.scatter(shap_values2[:, "TIR"],color='#f6776e')
