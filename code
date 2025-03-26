@@ -1,0 +1,113 @@
+import random
+import numpy as np
+import pandas as pd
+from catboost import CatBoostRegressor
+from bayes_opt import BayesianOptimization
+from sklearn.model_selection import GridSearchCV,cross_val_score
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+
+seed = 42
+random.seed(seed)
+np.random.seed(seed)
+
+def bayesian_optimization(dataset, function, parameters):
+
+   X_train, y_train, X_test, y_test = dataset
+   n_iterations = 2
+   gp_params = {"alpha": 1e-4}
+
+   BO = BayesianOptimization(function, parameters)
+   BO.set_gp_params(**gp_params)
+   BO.maximize(n_iter=n_iterations)   
+   return BO.max
+
+def rfr_optimization(cv_splits):
+    def function(n_estimators, max_depth, min_samples_split):
+        return cross_val_score(
+               RandomForestRegressor(
+                   n_estimators=int(max(n_estimators,0)),                                                              
+                   max_depth=int(max(max_depth,1)),
+                   min_samples_split=int(max(min_samples_split,2)),
+                   n_jobs=-1,
+                   random_state=42),  
+               X=X_train,
+               y=y_train,
+               cv=cv_splits,
+               scoring="r2",
+               n_jobs=-1).mean()
+
+    parameters = {"n_estimators": (10, 1000),
+                  "max_depth": (1, 150),
+                  "min_samples_split": (2, 10)}    
+
+    return function, parameters
+
+def catboost_optimization(cv_splits):
+    def function(iterations, learning_rate, depth, l2_leaf_reg):
+        return cross_val_score(
+               CatBoostRegressor(
+                   iterations=int(max(iterations, 1)),
+                   learning_rate=max(learning_rate, 0),
+                   depth=int(max(depth, 1)),
+                   l2_leaf_reg=max(l2_leaf_reg, 0),
+                   loss_function='RMSE',
+                   random_seed=42,
+                   verbose=False),  
+               X=X_train,
+               y=y_train,
+               cv=cv_splits,
+               scoring="r2",
+               n_jobs=-1).mean()
+
+    parameters = {"iterations": (10, 1000),
+                  "learning_rate": (0.01, 0.5),
+                  "depth": (1, 10),
+                  "l2_leaf_reg": (1, 10)}    
+
+    return function, parameters
+
+def train_rf(X_train, y_train, X_test, y_test, function, parameters):
+
+    dataset = (X_train, y_train, X_test, y_test)
+    
+    best_solution = bayesian_optimization(dataset, function, parameters)      
+    params = best_solution["params"]
+
+    model = RandomForestRegressor(
+             n_estimators=int(max(params["n_estimators"], 0)),
+             max_depth=int(max(params["max_depth"], 1)),
+             min_samples_split=int(max(params["min_samples_split"], 2)),
+             n_jobs=-1,
+             random_state=42,)
+
+    model.fit(X_train, y_train)    
+    return model
+
+def train_catboost(X_train, y_train, X_test, y_test, function, parameters):
+    dataset = (X_train, y_train, X_test, y_test)
+    
+    best_solution = bayesian_optimization(dataset, function, parameters)      
+    params = best_solution["params"]
+
+    model = CatBoostRegressor(
+             iterations=int(max(params["iterations"], 1)),
+             learning_rate=max(params["learning_rate"], 0),
+             depth=int(max(params["depth"], 1)),
+             l2_leaf_reg=max(params["l2_leaf_reg"], 0),
+             loss_function='RMSE',
+             random_seed=42,
+             verbose=False)
+
+    model.fit(X_train, y_train)    
+    return model
+
+selected_data_col = [col for col in df.columns if col.startswith('class')]
+selected_data = df[selected_data_col]
+X = selected_data
+X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
+y = df['bs']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=stratify_column)
+
+model = train_catboost(X_train, y_train, X_test, y_test, *catboost_optimization(10))
+model = train_rf(X_train, y_train, X_test, y_test, *rfr_optimization(10))
